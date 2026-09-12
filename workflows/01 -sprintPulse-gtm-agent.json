@@ -1,0 +1,1238 @@
+{
+  "name": "01 - SprintPulse GTM Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b912f44c-d591-40d0-91ed-cd6a73a8f43b",
+      "name": "When chat message received",
+      "webhookId": "0817ae92-7e99-4ef2-8e7e-87166a9a67b2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rawInput = String($input.first().json.chatInput || '').trim();\n\nconst supportedTones = [\n  'professional',\n  'conversational',\n  'bold',\n  'casual',\n  'formal',\n  'playful',\n  'authoritative',\n  'friendly',\n  'technical'\n];\n\nconst tonePattern = new RegExp(\n  `\\\\b(${supportedTones.join('|')})\\\\b`,\n  'i'\n);\n\nconst toneMatch = rawInput.match(tonePattern);\nconst tone = toneMatch ? toneMatch[1].toLowerCase() : 'professional';\n\nconst urlMatch = rawInput.match(/https?:\\/\\/\\S+/i);\nconst url = urlMatch ? urlMatch[0] : '';\n\nlet productName = rawInput\n  .replace(/https?:\\/\\/\\S+/gi, ' ')\n  .replace(\n    new RegExp(`\\\\b(${supportedTones.join('|')})\\\\b(?:\\\\s+tone)?`, 'gi'),\n    ' '\n  )\n  .replace(/^\\s*(please\\s+)?(create|generate|build|write)\\s+(me\\s+)?(a\\s+)?/i, '')\n  .replace(/^\\s*(gtm|go[-\\s]?to[-\\s]?market)\\s+/i, '')\n  .replace(/^\\s*(campaign|content suite|content)(?:\\s+for\\b)?\\s*/i, '')\n  .replace(/^\\s*for\\b\\s*/i, '')\n  .replace(/\\s+/g, ' ')\n  .trim();\n\nconst isValid = productName.length > 0;\n\nreturn [\n  {\n    json: {\n      raw_input: rawInput,\n      product_name: productName,\n      tone,\n      url,\n      is_valid: isValid,\n      error_message: isValid\n        ? ''\n        : 'Please provide a product name.'\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "e9e5dcc5-d133-4231-a91a-ef4b0f8dac8c",
+      "name": "Normalize Input"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f91a56f7-06c0-4e4e-b037-7694a67160d1",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        0
+      ],
+      "id": "0f621e52-5d09-42df-a526-9775a16cd77d",
+      "name": "Valid Input?"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "CONFIGURE_GOOGLE_SHEET_AFTER_IMPORT",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Products",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        672,
+        -96
+      ],
+      "id": "14f9d01a-c2d3-476c-bac1-36fb5957b5b1",
+      "name": "Read Product Catalog",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "CONFIGURE_AFTER_IMPORT",
+          "name": "Google Sheets credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $('Normalize Input').first().json;\nconst products = $input.all().map(item => item.json);\n\nconst normalize = (value) =>\n  String(value || '')\n    .toLowerCase()\n    .replace(/[^a-z0-9]/g, '');\n\nconst requestedName = normalize(request.product_name);\n\nconst matchedProduct = products.find((product) => {\n  const catalogName = normalize(product['Product Name']);\n\n  return (\n    catalogName === requestedName ||\n    catalogName.includes(requestedName) ||\n    requestedName.includes(catalogName)\n  );\n});\n\nif (!matchedProduct) {\n  return [\n    {\n      json: {\n        product_found: false,\n        requested_product: request.product_name,\n        tone: request.tone,\n        url: request.url,\n        available_products: products.map(\n          product => product['Product Name']\n        ),\n        error_message:\n          `Product \"${request.product_name}\" was not found in the catalog.`\n      }\n    }\n  ];\n}\n\nconst productData = [\n  `Product Name: ${matchedProduct['Product Name']}`,\n  `Description: ${matchedProduct['Description']}`,\n  `Key Features: ${matchedProduct['Key Features']}`,\n  `Pricing: ${matchedProduct['Pricing']}`,\n  `Target Audience: ${matchedProduct['Target Audience']}`,\n  `Launch Date: ${matchedProduct['Launch Date']}`,\n  `Category: ${matchedProduct['Category']}`\n].join('\\n');\n\nreturn [\n  {\n    json: {\n      product_found: true,\n      requested_product: request.product_name,\n      product_name: matchedProduct['Product Name'],\n      tone: request.tone,\n      url: request.url,\n      product_data: productData,\n      product_record: matchedProduct,\n      error_message: ''\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        -96
+      ],
+      "id": "c8e2f206-7908-4ba3-aba9-47e272ae6af8",
+      "name": "Find Product"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "38d6c4c2-ef5e-4803-9c15-acd086f91926",
+              "leftValue": "={{ $json.product_found }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1120,
+        -96
+      ],
+      "id": "5639be9d-3ea6-472c-9b50-44de3c0f7005",
+      "name": "Product Found?"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0b8e7a35-860f-492a-aa02-f60483eaba88",
+              "name": "=output",
+              "value": "={{ $json.error_message + ' Example: Create a professional campaign for SprintPulse AI.' }}",
+              "type": "string"
+            },
+            {
+              "id": "65e69616-8698-4457-a4b3-02d18adc9ab2",
+              "name": "status",
+              "value": "invalid_input",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        672,
+        96
+      ],
+      "id": "6cac21b2-7b41-4484-9102-79ac8458a079",
+      "name": "Invalid Input Response"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b1b58752-fd35-4514-ad15-eeffedc08f34",
+              "name": "=output",
+              "value": "={{ $json.error_message + ' Available products: ' + $json.available_products.join(', ') + '. Please enter one of these product names.' }}",
+              "type": "string"
+            },
+            {
+              "id": "c5a61478-7d13-4256-a9f8-34387d133248",
+              "name": "status",
+              "value": "product_not_found",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1296,
+        96
+      ],
+      "id": "d59563d6-7057-47a0-b803-029951c0cfd1",
+      "name": "Product Not Found Response"
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        -192
+      ],
+      "id": "0493357b-2b8f-45f6-b56d-4d78a00b5462",
+      "name": "Wait Before Strategy",
+      "webhookId": "a6fcc0b0-33ac-4c24-acae-035e0c616b10"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are the Strategy Agent for a go-to-market content workflow.\n\nYour job is to create a structured marketing strategy before any content is written.\n\nPRODUCT NAME:\n{{ $json.product_name }}\n\nVERIFIED PRODUCT DATA:\n{{ $json.product_data }}\n\nREQUESTED TONE:\n{{ $json.tone }}\n\nOPTIONAL URL PROVIDED BY USER:\n{{ $json.url || \"None provided\" }}\n\nGROUNDING RULES:\n1. Treat VERIFIED PRODUCT DATA as the only source of truth.\n2. Do not invent features, pricing, integrations, customer results, statistics, awards, testimonials, or performance claims.\n3. The optional URL is only a user-provided reference. Do not claim that its contents were researched or verified.\n4. If required product information is missing, identify it in the missing_information field.\n5. Create strategy only. Do not write the final LinkedIn post, email, blog, or advertisements.\n6. Match the requested tone while keeping the message clear and professional.\n7. Return only valid JSON. Do not include markdown fences or explanatory text.\n8. Never invent numerical or measurable claims such as percentages, time savings, productivity gains, ROI, or performance improvements.\n9. Rhetorical questions and content hooks must also follow all grounding rules.\n10. Use only audiences explicitly listed in VERIFIED PRODUCT DATA. Do not add inferred audiences.\n11. Do not state or imply time savings, automation outcomes, prevention of delays, elimination of work, or improved productivity unless those exact claims appear in VERIFIED PRODUCT DATA.\n12. Avoid measurable language such as hours, minutes, faster, reduced, increased, improved, eliminate, prevent, or save.\n13. Content hooks must describe the verified features or ask about the audience’s problem without promising an outcome.\n14. Before returning the JSON, check every statement against VERIFIED PRODUCT DATA and remove or rewrite anything that is not directly supported.\n\nReturn this exact JSON structure:\n\n{\n  \"product_summary\": \"Two or three factual sentences.\",\n  \"target_audience\": {\n    \"primary\": \"Primary audience\",\n    \"secondary\": \"Secondary audience\",\n    \"pain_points\": [\n      \"Pain point 1\",\n      \"Pain point 2\",\n      \"Pain point 3\"\n    ]\n  },\n  \"value_proposition\": \"One clear sentence.\",\n  \"proof_points\": [\n    \"Fact supported by the product data\",\n    \"Fact supported by the product data\"\n  ],\n  \"messaging_angles\": [\n    \"Messaging angle 1\",\n    \"Messaging angle 2\",\n    \"Messaging angle 3\"\n  ],\n  \"tone_guidelines\": {\n    \"do\": [\n      \"Tone instruction 1\",\n      \"Tone instruction 2\"\n    ],\n    \"dont\": [\n      \"Restriction 1\",\n      \"Restriction 2\"\n    ]\n  },\n  \"content_hooks\": [\n    \"Hook 1\",\n    \"Hook 2\",\n    \"Hook 3\",\n    \"Hook 4\",\n    \"Hook 5\"\n  ],\n  \"missing_information\": []\n}",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1568,
+        -192
+      ],
+      "id": "75e8b746-1684-409c-ad97-db1f71e68c0b",
+      "name": "Strategy Agent"
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-20b",
+        "options": {
+          "maxTokensToSample": 5000,
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        1664,
+        0
+      ],
+      "id": "1d4d025b-4222-4637-8c5d-152cd862c71f",
+      "name": "Groq Strategy Model",
+      "credentials": {
+        "groqApi": {
+          "id": "CONFIGURE_AFTER_IMPORT",
+          "name": "Groq API credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const rawStrategy = String(\n  $json.text || $json.output || ''\n).trim();\n\nconst cleanedStrategy = rawStrategy\n  .replace(/^```json\\s*/i, '')\n  .replace(/^```\\s*/i, '')\n  .replace(/\\s*```$/i, '')\n  .trim();\n\ntry {\n  const strategy = JSON.parse(cleanedStrategy);\n  const product = $('Find Product').first().json;\n\n  return {\n    json: {\n      ...product,\n      strategy,\n      strategy_parse_success: true,\n      strategy_parse_error: ''\n    }\n  };\n} catch (error) {\n  const product = $('Find Product').first().json;\n\n  return {\n    json: {\n      ...product,\n      strategy: null,\n      strategy_raw: cleanedStrategy,\n      strategy_parse_success: false,\n      strategy_parse_error: error.message\n    }\n  };\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1936,
+        -192
+      ],
+      "id": "f8ca01ae-fd8c-4503-87c6-e0da50f7396a",
+      "name": "Parse Strategy"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "61c90425-34f7-4fff-82f7-40ccfda488be",
+              "leftValue": "={{ $json.strategy_parse_success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2160,
+        -192
+      ],
+      "id": "99647f06-0c92-4b43-b3c4-279d65439c5c",
+      "name": "Strategy Parsed?"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a187e5b2-d30f-42a0-88e3-1686c7415ad9",
+              "name": "output",
+              "value": "The campaign strategy could not be prepared. Please try again.",
+              "type": "string"
+            },
+            {
+              "id": "5f497d76-3627-4227-b9a8-1aa79693f1d8",
+              "name": "status",
+              "value": "strategy_error",
+              "type": "string"
+            },
+            {
+              "id": "ee83a731-18bf-411d-97b5-418c2afd8e21",
+              "name": "error_details",
+              "value": "={{ $json.error_message || $json.strategy_parse_error || 'Invalid strategy output' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2384,
+        -96
+      ],
+      "id": "ae6315ca-17c8-4d3c-bd6f-48089330540d",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "amount": 10
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2384,
+        -288
+      ],
+      "id": "e78c5a21-4b87-4791-ad30-0b8b5f2cc463",
+      "name": "Wait Before Writer",
+      "webhookId": "8f1df247-0763-4d5a-8b9e-78d0527ceb54"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are the Writer Agent in a go-to-market content workflow.\n\nYour job is to create four coordinated marketing assets using only the verified product data and approved strategy below.\n\nPRODUCT NAME:\n{{ $json.product_name }}\n\nVERIFIED PRODUCT DATA:\n{{ $json.product_data }}\n\nREQUESTED TONE:\n{{ $json.tone }}\n\nAPPROVED STRATEGY:\n{{ JSON.stringify($json.strategy) }}\n\nGROUNDING RULES:\n1. VERIFIED PRODUCT DATA is the only source of truth for product facts.\n2. Do not invent features, integrations, pricing, statistics, awards, testimonials, customer results, performance claims, or guarantees.\n3. Do not claim time savings, productivity improvements, ROI, faster performance, or measurable business outcomes unless explicitly stated in VERIFIED PRODUCT DATA.\n4. Do not use unsupported measurable words such as hours, minutes, percentages, faster, reduced, increased, eliminate, prevent, or save.\n5. Use only the audiences provided in the verified product data.\n6. Follow the approved strategy only when it does not conflict with the verified product data.\n7. Do not claim that an optional URL was researched or verified.\n8. Do not include fabricated quotations or customer stories.\n9. Match the requested tone.\n10. Do not publish the content or state that it has been approved.\n11. Return only valid JSON without markdown fences or explanatory text.\n12. The complete response must be valid JSON that can be parsed by JSON.parse().\n13. Escape every double quotation mark inside a text value as \\\".\n14. Represent paragraph breaks inside text values as \\n; never use literal line breaks inside a quoted JSON string.\n15. Do not place quotation marks around slogans, hooks, headings, or promotional phrases.\n16. Before returning, verify that every string is closed and all braces and brackets match.\n\nCONTENT REQUIREMENTS:\n\nLinkedIn post:\n- 80-120 words\n- Include a clear opening hook\n- Explain the verified product value\n- End with a simple call to action\n- Use no more than three relevant hashtags\n\nPromotional email:\n- Include a subject line\n- Include preview text\n- Write a concise email body\n- Keep the email body between 100 and 160 words\n- End with a call to action\n\nShort blog:\n- Include a title\n- Write 150-220 words\n- Use short paragraphs\n- Include an introduction, product explanation, and conclusion\n\nAd variations:\n- Create exactly three variations\n- Each variation must include a headline, body, and call to action\n- Keep each headline under 12 words\n- Keep each body under 40 words\n\nReturn this exact JSON structure:\n\n{\n  \"linkedin_post\": {\n    \"text\": \"Complete LinkedIn post\"\n  },\n  \"promotional_email\": {\n    \"subject\": \"Email subject\",\n    \"preview_text\": \"Email preview text\",\n    \"body\": \"Complete email body\"\n  },\n  \"short_blog\": {\n    \"title\": \"Blog title\",\n    \"body\": \"Complete short blog\"\n  },\n  \"ad_variations\": [\n    {\n      \"headline\": \"Ad headline 1\",\n      \"body\": \"Ad body 1\",\n      \"call_to_action\": \"CTA 1\"\n    },\n    {\n      \"headline\": \"Ad headline 2\",\n      \"body\": \"Ad body 2\",\n      \"call_to_action\": \"CTA 2\"\n    },\n    {\n      \"headline\": \"Ad headline 3\",\n      \"body\": \"Ad body 3\",\n      \"call_to_action\": \"CTA 3\"\n    }\n  ]\n}",
+        "hasOutputParser": true,
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        2608,
+        -288
+      ],
+      "id": "c2b10c9f-3476-491b-bca8-ff5b301022a1",
+      "name": "Writer Agent"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const previousData = $('Parse Strategy').first().json;\n\n// The Structured Output Parser returns the draft as an object.\nif (\n  $json.output &&\n  typeof $json.output === 'object' &&\n  !Array.isArray($json.output)\n) {\n  return {\n    json: {\n      ...previousData,\n      draft: $json.output,\n      draft_raw: JSON.stringify($json.output),\n      draft_parse_success: true,\n      draft_parse_error: ''\n    }\n  };\n}\n\n// Fallback for responses returned as text.\nconst rawDraft = String(\n  $json.text ?? $json.output ?? ''\n).trim();\n\nlet cleanedDraft = rawDraft\n  .replace(/<think>[\\s\\S]*?<\\/think>/gi, '')\n  .replace(/^```json\\s*/i, '')\n  .replace(/^```\\s*/i, '')\n  .replace(/\\s*```$/i, '')\n  .trim();\n\nconst firstBrace = cleanedDraft.indexOf('{');\nconst lastBrace = cleanedDraft.lastIndexOf('}');\n\nif (firstBrace !== -1 && lastBrace > firstBrace) {\n  cleanedDraft = cleanedDraft.slice(firstBrace, lastBrace + 1);\n}\n\ntry {\n  const draft = JSON.parse(cleanedDraft);\n\n  return {\n    json: {\n      ...previousData,\n      draft,\n      draft_raw: cleanedDraft,\n      draft_parse_success: true,\n      draft_parse_error: ''\n    }\n  };\n} catch (error) {\n  return {\n    json: {\n      ...previousData,\n      draft: null,\n      draft_raw: cleanedDraft,\n      draft_parse_success: false,\n      draft_parse_error:\n        error instanceof Error ? error.message : String(error)\n    }\n  };\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2976,
+        -288
+      ],
+      "id": "c34442c7-a2eb-4298-8e32-7f4ff616f990",
+      "name": "Parse Draft"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "290bd311-3166-486a-b1ec-3afc5623c7d4",
+              "leftValue": "={{ $json.draft_parse_success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3200,
+        -288
+      ],
+      "id": "60850235-41ed-4863-9f78-fd7c188eb4d8",
+      "name": "Draft Parsed?"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c0954b05-a490-41b1-a4ad-5404ca6436ca",
+              "name": "output",
+              "value": "The campaign content could not be prepared. Please try again.",
+              "type": "string"
+            },
+            {
+              "id": "bfda2eee-fbc6-42b9-b176-9ab7ff6e4b43",
+              "name": "status",
+              "value": "draft_error",
+              "type": "string"
+            },
+            {
+              "id": "6a551457-44e4-423a-bf18-ce80dda3f322",
+              "name": "error_detail",
+              "value": "={{ $json.draft_parse_error || 'Invalid draft output' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        3424,
+        -176
+      ],
+      "id": "c6038d55-dc26-4e40-ac65-9425eb513b60",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "amount": 10
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3424,
+        -384
+      ],
+      "id": "b9c33389-1d69-47c4-be73-23d1364cc58c",
+      "name": "Wait Before Reviewer",
+      "webhookId": "b9f9c2e8-ee75-41dd-b7a3-ec9db7e79176"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are the independent Reviewer Agent in a go-to-market content workflow.\n\nReview the drafted campaign against the verified product data. Be strict. Do not rewrite the campaign in this step.\n\nVERIFIED PRODUCT DATA:\n{{ $json.product_data }}\n\nREQUESTED TONE:\n{{ $json.tone }}\n\nDRAFTED CAMPAIGN:\n{{ JSON.stringify($json.draft) }}\n\nREVIEW RULES:\n1. Every product claim must be directly supported by VERIFIED PRODUCT DATA.\n2. Flag invented features, integrations, pricing, audiences, dates, statistics, awards, testimonials, guarantees, or customer results.\n3. Flag implied outcomes not present in the product data, including time savings, productivity improvements, ROI, faster performance, reduced effort, prevention of delays, or elimination of work.\n4. Flag unsupported words or phrases such as hours, minutes, quickly, faster, save, eliminate, prevent, minimal effort, no extra effort, or frees managers.\n5. Confirm that the campaign contains:\n   - one LinkedIn post\n   - one promotional email\n   - one short blog\n   - exactly three ad variations\n6. Confirm that pricing, launch date, features, audience, and category match the product data.\n7. Confirm that the requested tone is followed.\n8. Flag contradictions between different content sections.\n9. Do not approve content merely because it sounds reasonable.\n10. Return PASS only when every required content format is present and no unsupported claim remains.\n11. Return only valid JSON without markdown fences or explanatory text.\n\nReturn this exact JSON structure:\n\n{\n  \"verdict\": \"PASS or REVISE\",\n  \"grounding_score\": 0,\n  \"completeness_score\": 0,\n  \"tone_score\": 0,\n  \"issues\": [\n    {\n      \"location\": \"Content section\",\n      \"problem\": \"Exact unsupported or incorrect statement\",\n      \"reason\": \"Why it fails review\"\n    }\n  ],\n  \"revision_instructions\": [\n    \"Specific correction required\"\n  ],\n  \"summary\": \"Short explanation of the verdict\"\n}",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        3648,
+        -384
+      ],
+      "id": "612fadc6-30a2-4907-bb71-77acc1e3145c",
+      "name": "Reviewer Agent"
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-120b",
+        "options": {
+          "maxTokensToSample": 5000,
+          "temperature": 0.1
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        3728,
+        -176
+      ],
+      "id": "96449ad3-3210-47d0-9ee4-f90954644827",
+      "name": "Groq Reviewer Model",
+      "credentials": {
+        "groqApi": {
+          "id": "CONFIGURE_AFTER_IMPORT",
+          "name": "Groq API credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-20b",
+        "options": {
+          "maxTokensToSample": 3000,
+          "temperature": 0.1
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        2624,
+        -80
+      ],
+      "id": "24c5f5ba-27eb-4ce6-96bd-54068e930d2d",
+      "name": "Groq Writer Model",
+      "credentials": {
+        "groqApi": {
+          "id": "CONFIGURE_AFTER_IMPORT",
+          "name": "Groq API credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const rawReview = String(\n  $json.text || $json.output || ''\n).trim();\n\nconst cleanedReview = rawReview\n  .replace(/^```json\\s*/i, '')\n  .replace(/^```\\s*/i, '')\n  .replace(/\\s*```$/i, '')\n  .trim();\n\nconst previousData = $('Parse Draft').first().json;\n\ntry {\n  const review = JSON.parse(cleanedReview);\n\n  return {\n    json: {\n      ...previousData,\n      review,\n      review_verdict: String(review.verdict || '').toUpperCase(),\n      review_parse_success: true,\n      review_parse_error: ''\n    }\n  };\n} catch (error) {\n  return {\n    json: {\n      ...previousData,\n      review: null,\n      review_raw: cleanedReview,\n      review_verdict: '',\n      review_parse_success: false,\n      review_parse_error: error instanceof Error ? error.message : String(error)\n    }\n  };\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4016,
+        -384
+      ],
+      "id": "a43e69f6-36b4-4e35-bf2d-ce3ee36e2de0",
+      "name": "Parse Review"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9474f94f-2235-463e-8759-779323f1fc70",
+              "leftValue": "={{ $json.review_parse_success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        4240,
+        -384
+      ],
+      "id": "b408ec21-f265-49de-8a29-6135a3e9ce23",
+      "name": "Review Parsed?"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "61160c49-4b74-4fbc-a0b3-2692a9c9337c",
+              "name": "output",
+              "value": "The campaign review could not be completed. Please try again.",
+              "type": "string"
+            },
+            {
+              "id": "3e48415b-63c1-4b70-964e-d4c6396f6149",
+              "name": "status",
+              "value": "review_error",
+              "type": "string"
+            },
+            {
+              "id": "70398532-e077-49e8-829b-cc919a618521",
+              "name": "error_details",
+              "value": "={{ $json.review_parse_error || 'Invalid review output' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        4400,
+        -240
+      ],
+      "id": "be5d5462-13ed-468b-a7bb-7fbb2f165341",
+      "name": "Edit Fields2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "7e8b28f7-028e-4d7e-9050-4ae5aaae50b5",
+              "leftValue": "={{ $json.review_verdict }}",
+              "rightValue": "PASS",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        4464,
+        -480
+      ],
+      "id": "e4544fa2-65f3-45b8-a96f-ac72d1326fad",
+      "name": "Review Passed?"
+    },
+    {
+      "parameters": {
+        "amount": 30
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        4672,
+        -336
+      ],
+      "id": "07935371-af97-46d7-bb62-5b27ed55a663",
+      "name": "Wait Before Revision",
+      "webhookId": "cf0bfd4a-d45c-4aba-9610-0019566a23ba"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are the Revision Agent in a go-to-market content workflow.\n\nRevise the drafted campaign exactly once using the independent review feedback.\n\nVERIFIED PRODUCT DATA:\n{{ $json.product_data }}\n\nREQUESTED TONE:\n{{ $json.tone }}\n\nORIGINAL DRAFT:\n{{ JSON.stringify($json.draft) }}\n\nREVIEW ISSUES:\n{{ JSON.stringify($json.review.issues) }}\n\nREVISION INSTRUCTIONS:\n{{ JSON.stringify($json.review.revision_instructions) }}\n\nRULES:\n1. Correct every issue identified by the Reviewer.\n2. Use VERIFIED PRODUCT DATA as the only source of truth.\n3. Do not add new features, audiences, pricing, dates, integrations, statistics, testimonials, guarantees, or customer results.\n4. Remove unsupported claims about time savings, productivity, ROI, speed, reduced effort, prevention, or elimination of work.\n5. Avoid words such as hours, minutes, quickly, faster, save, eliminate, prevent, minimal effort, no extra effort, and frees managers unless directly supported by the verified data.\n6. Preserve all four required content formats.\n7. Preserve exactly three ad variations.\n8. Match the requested tone.\n9. This is the only permitted revision. Do not request another revision.\n10. Return only valid JSON without markdown fences or explanatory text.\n\nReturn this exact JSON structure:\n\n{\n  \"linkedin_post\": {\n    \"text\": \"Revised LinkedIn post\"\n  },\n  \"promotional_email\": {\n    \"subject\": \"Revised email subject\",\n    \"preview_text\": \"Revised preview text\",\n    \"body\": \"Revised email body\"\n  },\n  \"short_blog\": {\n    \"title\": \"Revised blog title\",\n    \"body\": \"Revised short blog\"\n  },\n  \"ad_variations\": [\n    {\n      \"headline\": \"Revised adProfile headline 1\",\n      \"body\": \"Revised ad body 1\",\n      \"call_to_action\": \"CTA 1\"\n    },\n    {\n      \"headline\": \"Revised ad headline 2\",\n      \"body\": \"Revised ad body 2\",\n      \"call_to_action\": \"CTA 2\"\n    },\n    {\n      \"headline\": \"Revised ad headline 3\",\n      \"body\": \"Revised ad body 3\",\n      \"call_to_action\": \"CTA 3\"\n    }\n  ]\n}",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        4912,
+        -272
+      ],
+      "id": "3c66bef0-9ddd-4688-b7f5-87913309dced",
+      "name": "Revision Agent"
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-120b",
+        "options": {
+          "maxTokensToSample": 3000,
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        4912,
+        -80
+      ],
+      "id": "25b7ede0-d6c5-4684-a26c-a39dce969625",
+      "name": "Groq Revision Model",
+      "credentials": {
+        "groqApi": {
+          "id": "CONFIGURE_AFTER_IMPORT",
+          "name": "Groq API credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const rawRevision = String(\n  $json.text || $json.output || ''\n).trim();\n\nconst cleanedRevision = rawRevision\n  .replace(/^```json\\s*/i, '')\n  .replace(/^```\\s*/i, '')\n  .replace(/\\s*```$/i, '')\n  .trim();\n\nconst previousData = $('Parse Review').first().json;\n\ntry {\n  const revisedDraft = JSON.parse(cleanedRevision);\n\n  return {\n    json: {\n      ...previousData,\n      final_content: revisedDraft,\n      revision_applied: true,\n      revision_parse_success: true,\n      revision_parse_error: '',\n      final_status: 'pending_human_review'\n    }\n  };\n} catch (error) {\n  return {\n    json: {\n      ...previousData,\n      final_content: null,\n      revision_raw: cleanedRevision,\n      revision_applied: true,\n      revision_parse_success: false,\n      revision_parse_error:\n        error instanceof Error ? error.message : String(error),\n      final_status: 'revision_error'\n    }\n  };\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5248,
+        -288
+      ],
+      "id": "6ff23d31-438b-48ac-a833-69efc2969b92",
+      "name": "Parse Revision"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9138cc61-b07e-44b5-a75c-5838c1f2c55f",
+              "leftValue": "={{ $json.revision_parse_success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        5488,
+        -432
+      ],
+      "id": "92f53aca-3fe8-48d9-8b01-335b6f886ff2",
+      "name": "Revision Parsed?"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "29d7b967-dc56-427d-be38-f5b2aaa74bb1",
+              "name": "output",
+              "value": "The campaign revision could not be completed. Please try again.",
+              "type": "string"
+            },
+            {
+              "id": "83baa992-8ed3-466b-a115-71740635733c",
+              "name": "status",
+              "value": "revision_error",
+              "type": "string"
+            },
+            {
+              "id": "24832568-b56f-4271-8ab4-9abace004fa5",
+              "name": "error_details",
+              "value": "={{ $json.revision_parse_error || 'Invalid revision output' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        5744,
+        -304
+      ],
+      "id": "15e3a93a-3b53-4018-a40b-9bab23f60daf",
+      "name": "Revision Error Response"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const data = $json;\nconst content = data.final_content;\n\nif (!content) {\n  return {\n    json: {\n      output: 'No final campaign content was available.',\n      status: 'final_content_error'\n    }\n  };\n}\n\nconst ads = Array.isArray(content.ad_variations)\n  ? content.ad_variations\n      .map(\n        (ad, index) =>\n          `### Ad ${index + 1}\\n` +\n          `**Headline:** ${ad.headline || ''}\\n\\n` +\n          `${ad.body || ''}\\n\\n` +\n          `**Call to action:** ${ad.call_to_action || ''}`\n      )\n      .join('\\n\\n')\n  : 'No ad variations were returned.';\n\nconst revisionMessage = data.revision_applied\n  ? 'One automated revision was applied after the independent review.'\n  : 'The draft passed the independent review without an automated revision.';\n\nconst reviewSummary =\n  data.review?.summary || 'No review summary was provided.';\n\nconst output = `# ${data.product_name} GTM Campaign\n\n> **Status: Pending human review**\n>\n> ${revisionMessage}\n>\n> Nothing has been published automatically.\n\n## LinkedIn Post\n\n${content.linkedin_post?.text || 'Not available'}\n\n## Promotional Email\n\n**Subject:** ${content.promotional_email?.subject || 'Not available'}\n\n**Preview text:** ${content.promotional_email?.preview_text || 'Not available'}\n\n${content.promotional_email?.body || 'Not available'}\n\n## Short Blog\n\n### ${content.short_blog?.title || 'Not available'}\n\n${content.short_blog?.body || 'Not available'}\n\n## Ad Variations\n\n${ads}\n\n## Pre-Revision Reviewer Summary\n\nThe following feedback applies to the original draft and triggered the automated revision:\n${reviewSummary}\n\n---\n\nA human reviewer must verify all claims, tone, and formatting before publication.`;\n\nreturn {\n  json: {\n    ...data,\n    output,\n    status: 'pending_human_review'\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5744,
+        -528
+      ],
+      "id": "318a8730-b5a8-4697-9a8f-cf03ee9e2403",
+      "name": "Format Human Review Response"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const data = $json;\n\nreturn {\n  json: {\n    ...data,\n    final_content: data.draft,\n    revision_applied: false,\n    final_status: 'pending_human_review'\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5104,
+        -592
+      ],
+      "id": "1c75c7e4-4d8e-4607-a100-38a3db025734",
+      "name": "Prepare Approved Draft1"
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"linkedin_post\": {\n    \"text\": \"Sample LinkedIn post\"\n  },\n  \"promotional_email\": {\n    \"subject\": \"Sample email subject\",\n    \"preview_text\": \"Sample preview text\",\n    \"body\": \"Sample email body\",\n    \"call_to_action\": \"Learn More\"\n  },\n  \"short_blog\": {\n    \"title\": \"Sample blog title\",\n    \"body\": \"Sample blog body\"\n  },\n  \"ad_variations\": [\n    {\n      \"headline\": \"Sample headline one\",\n      \"body\": \"Sample advertisement body one\",\n      \"call_to_action\": \"Learn More\"\n    },\n    {\n      \"headline\": \"Sample headline two\",\n      \"body\": \"Sample advertisement body two\",\n      \"call_to_action\": \"Explore Now\"\n    },\n    {\n      \"headline\": \"Sample headline three\",\n      \"body\": \"Sample advertisement body three\",\n      \"call_to_action\": \"Get Started\"\n    }\n  ]\n}",
+        "autoFix": true
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        2752,
+        -96
+      ],
+      "id": "af9683ce-9b9e-4f0d-83f6-f9b870f42514",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-oss-20b",
+        "options": {
+          "maxTokensToSample": 5000,
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        2976,
+        80
+      ],
+      "id": "52bc7111-eb26-4245-a1a6-28b97793e0ad",
+      "name": "Groq Chat Model",
+      "credentials": {
+        "groqApi": {
+          "id": "CONFIGURE_AFTER_IMPORT",
+          "name": "Groq API credential"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Valid Input?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid Input?": {
+      "main": [
+        [
+          {
+            "node": "Read Product Catalog",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Invalid Input Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Product Catalog": {
+      "main": [
+        [
+          {
+            "node": "Find Product",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Product": {
+      "main": [
+        [
+          {
+            "node": "Product Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Product Found?": {
+      "main": [
+        [
+          {
+            "node": "Wait Before Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Product Not Found Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before Strategy": {
+      "main": [
+        [
+          {
+            "node": "Strategy Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Strategy Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Strategy Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Strategy Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Strategy": {
+      "main": [
+        [
+          {
+            "node": "Strategy Parsed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Strategy Parsed?": {
+      "main": [
+        [
+          {
+            "node": "Wait Before Writer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before Writer": {
+      "main": [
+        [
+          {
+            "node": "Writer Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Writer Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Draft": {
+      "main": [
+        [
+          {
+            "node": "Draft Parsed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft Parsed?": {
+      "main": [
+        [
+          {
+            "node": "Wait Before Reviewer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before Reviewer": {
+      "main": [
+        [
+          {
+            "node": "Reviewer Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Reviewer Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Reviewer Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Writer Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Writer Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reviewer Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Review": {
+      "main": [
+        [
+          {
+            "node": "Review Parsed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review Parsed?": {
+      "main": [
+        [
+          {
+            "node": "Review Passed?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit Fields2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review Passed?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Approved Draft1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait Before Revision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before Revision": {
+      "main": [
+        [
+          {
+            "node": "Revision Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Revision Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Revision Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Revision Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Revision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Revision": {
+      "main": [
+        [
+          {
+            "node": "Revision Parsed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Revision Parsed?": {
+      "main": [
+        [
+          {
+            "node": "Format Human Review Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Revision Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Human Review Response": {
+      "main": [
+        []
+      ]
+    },
+    "Revision Error Response": {
+      "main": [
+        []
+      ]
+    },
+    "Prepare Approved Draft1": {
+      "main": [
+        [
+          {
+            "node": "Format Human Review Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Writer Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Structured Output Parser",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "6538d0c1-55f0-4e3e-8ffb-8505a448b498",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "54cd7d5123f3ac103708a8c9d481b61d48f00ba415a4ca7e31de8c152fb0607b"
+  },
+  "nodeGroups": [],
+  "id": "r1L6RQaowTLC5sVa",
+  "tags": []
+}
